@@ -641,7 +641,7 @@ mod tests {
     #[test]
     fn test_sm_shutdown() {
         init();
-        let persist = gen_random_dir();
+        let persist = gen_random_test_sm_dir();
         info!("{:?}", persist);
         let sm = StorageManager::new(persist.clone());
         let container_id = 1;

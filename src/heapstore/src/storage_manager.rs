@@ -3,7 +3,7 @@ use crate::heapfileiter::HeapFileIterator;
 use crate::page::Page;
 use common::prelude::*;
 use common::storage_trait::StorageTrait;
-use common::testutil::gen_random_dir;
+use common::testutil::gen_random_test_sm_dir;
 use common::PAGE_SIZE;
 use std::collections::HashMap;
 use std::fs;
@@ -17,6 +17,7 @@ use std::sync::{Arc, RwLock};
 pub struct StorageManager {
     /// Path to database metadata files.
     pub storage_path: PathBuf,
+    /// Indicates if this is a temp StorageManager (for testing)
     is_temp: bool,
     }
 
@@ -71,15 +72,17 @@ impl StorageTrait for StorageManager {
     type ValIterator = HeapFileIterator;
 
     /// Create a new storage manager that will use storage_path as the location to persist data
-    /// (if the storage manager persists records on disk)
+    /// (if the storage manager persists records on disk; not the case for memstore)
+    /// For startup/shutdown: check the storage_path for data persisted in shutdown() that you can
+    /// use to populate this instance of the SM. Otherwise create a new one.
     fn new(storage_path: PathBuf) -> Self {
         panic!("TODO milestone hs");
     }
 
-    /// Create a new storage manager for testing. If this creates a temporary directory it should be cleaned up
-    /// when it leaves scope.
+    /// Create a new storage manager for testing. There is no startup/shutdown logic here: it
+    /// should simply create a fresh SM and set is_temp to true
     fn new_test_sm() -> Self {
-        let storage_path = gen_random_dir();
+        let storage_path = gen_random_test_sm_dir();
         debug!("Making new temp storage_manager {:?}", storage_path);
         panic!("TODO milestone hs");
     }
@@ -114,7 +117,11 @@ impl StorageTrait for StorageManager {
         values: Vec<Vec<u8>>,
         tid: TransactionId,
     ) -> Vec<ValueId> {
-        panic!("TODO milestone hs");
+        let mut ret = Vec::new();
+        for v in values {
+            ret.push(self.insert_value(container_id, v, tid));
+        }
+        ret
     }
 
     /// Delete the data for a value. If the valueID is not found it returns Ok() still.
@@ -197,19 +204,26 @@ impl StorageTrait for StorageManager {
         panic!("TODO milestone tm");
     }
 
-    /// Testing utility to reset all state associated the storage manager.
+    /// Testing utility to reset all state associated the storage manager. Deletes all data in
+    /// storage path (keeping storage path as a directory). Doesn't need to serialize any data to
+    /// disk as its just meant to clear state. 
+    ///
+    /// Clear any data structures in the SM you add
     fn reset(&self) -> Result<(), CrustyError> {
+        fs::remove_dir_all(self.storage_path.clone())?;
+        fs::create_dir_all(self.storage_path.clone()).unwrap();
         panic!("TODO milestone hs");
     }
 
     /// If there is a buffer pool or cache it should be cleared/reset.
+    /// Otherwise do nothing.
     fn clear_cache(&self) {
-        panic!("TODO milestone hs");
     }
 
-    /// Shutdown the storage manager. Can call drop. Should be safe to call multiple times.
-    /// If temp, this should remove all stored files.
-    /// If not a temp SM, this should serialize the mapping between containerID and Heapfile.
+    /// Shutdown the storage manager. Should be safe to call multiple times. You can assume this
+    /// function will never be called on a temp SM.
+    /// This should serialize the mapping between containerID and Heapfile to disk in a way that
+    /// can be read by StorageManager::new. 
     /// HINT: Heapfile won't be serializable/deserializable. You'll want to serialize information
     /// that can be used to create a HeapFile object pointing to the same data. You don't need to
     /// worry about recreating read_count or write_count.
@@ -280,10 +294,15 @@ impl StorageTrait for StorageManager {
 
 /// Trait Impl for Drop
 impl Drop for StorageManager {
-    /// Shutdown the storage manager. Can call be called by shutdown. Should be safe to call multiple times.
-    /// If temp, this should remove all stored files.
+    // if temp SM this clears the storage path entirely when it leaves scope; used for testing
     fn drop(&mut self) {
-        panic!("TODO milestone hs");
+        if self.is_temp {
+            debug!("Removing storage path on drop {:?}", self.storage_path);
+            let remove_all = fs::remove_dir_all(self.storage_path.clone());
+            if let Err(e) = remove_all {
+                println!("Error on removing temp dir {}", e);
+            }
+        }
     }
 }
 

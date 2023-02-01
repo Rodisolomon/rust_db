@@ -8,11 +8,14 @@ use rand::{
     thread_rng, Rng,
 };
 use std::env;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 pub fn init() {
     // To change the log level for tests change the filter_level
-    let _ = env_logger::builder().is_test(true).filter_level(log::LevelFilter::Info).try_init();
+    let _ = env_logger::builder()
+        .is_test(true)
+        .filter_level(log::LevelFilter::Info)
+        .try_init();
 }
 
 pub fn gen_uniform_strings(n: u64, cardinality: Option<u64>, min: usize, max: usize) -> Vec<Field> {
@@ -184,10 +187,20 @@ pub fn gen_rand_string(n: usize) -> String {
         .collect()
 }
 
-pub fn gen_random_dir() -> PathBuf {
+pub fn gen_random_test_sm_dir() -> PathBuf {
     init();
-    let mut dir = env::temp_dir();
-    dir.push(String::from("crusty"));
+    let mut dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
+    let mut check_file = dir.clone();
+    check_file.set_file_name(String::from(".CRUSTYROOT"));
+    let mut found_root = Path::new(&check_file).exists();
+    while !found_root {
+        dir.push(String::from(".."));
+        check_file = dir.clone();
+        check_file.set_file_name(String::from(".CRUSTYROOT"));
+        found_root = Path::new(&check_file).exists();
+    }
+    dir.push(String::from("crusty_data"));
+    dir.push(String::from("temp"));
     let rand_string = gen_rand_string(10);
     dir.push(rand_string);
     dir
@@ -294,7 +307,7 @@ pub fn compare_unordered_byte_vecs(a: &[Vec<u8>], mut b: Vec<Vec<u8>>) -> bool {
             }
         }
     }
-    if !b.is_empty(){
+    if !b.is_empty() {
         trace!("Values in B that did not match a {:?}", b);
     }
     //since they are the same size, b should be empty

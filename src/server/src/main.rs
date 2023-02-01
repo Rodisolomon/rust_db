@@ -90,7 +90,7 @@ fn main() {
                 .short("db")
                 .long("db_path")
                 .value_name("db_path")
-                .default_value("persist/db/")
+                .default_value("default/")
                 .help("Path where DB is stored")
                 .takes_value(true),
         )
@@ -142,7 +142,8 @@ fn main() {
     // Receiver is shared by workers
     let receiver = Arc::new(Mutex::new(receiver));
 
-    let server_state_box = Box::new(ServerState::new(config.db_path, sender).unwrap());
+    let persist_path = format!("crusty_data/persist/{}", config.db_path);
+    let server_state_box = Box::new(ServerState::new(persist_path, sender).unwrap());
     let server_state: &'static ServerState = Box::leak(server_state_box);
     //Create daemon thread
     let mut _daemon_thread = Daemon::new(server_state, daemon_seconds);

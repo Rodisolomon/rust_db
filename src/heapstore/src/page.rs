@@ -4,21 +4,21 @@ use std::convert::TryInto;
 use std::fmt;
 use std::mem;
 
-// This is the max type for the size of the page.
-// A page will never be bigger than this type so you can store offsets with
-// this type. Note you will likely need to cast to usize as this type is how Rust
-// indexes arrays.
+// Type to hold any value smaller than the size of a page.
+// We choose u16 because it is sufficient to represent any slot that fits in a 4096-byte-sized page.
+// Note that you will need to cast Offset to usize if you want to use it to index an array.
 pub type Offset = u16;
 // For debug
 const BYTES_PER_LINE: usize = 40;
 
 
-/// The struct for a page. Note this can hold more elements/meta data when created,
-/// but it must be able to be packed/serialized/marshalled into the data array of size
-/// PAGE_SIZE. In the header, you are allowed to allocate 8 bytes for general page metadata and
+/// Page struct. This must occupy not more than PAGE_SIZE when serialized.
+/// In the header, you are allowed to allocate 8 bytes for general page metadata and
 /// 6 bytes per value/entry/slot stored. For example a page that has stored 3 values, can use
 /// up to 8+3*6=26 bytes, leaving the rest (PAGE_SIZE-26 for data) when serialized.
-/// You do not need reclaim header information for a value inserted (eg 6 bytes per value ever inserted)
+/// If you delete a value, you do not need reclaim header space the way you must reclaim page
+/// body space. E.g., if you insert 3 values then delete 2 of them, your header can remain 26
+/// bytes & subsequent inserts can simply add 6 more bytes to the header as normal.
 /// The rest must filled as much as possible to hold values.
 pub(crate) struct Page {
     /// The data for data
@@ -43,7 +43,8 @@ impl Page {
     /// Note that where the bytes are stored in the page does not matter (heap), but it
     /// should not change the slotId for any existing value. This means that
     /// bytes in the page may not follow the slot order.
-    /// If a slot is deleted you should replace the slotId on the next insert.
+    /// If a slot is deleted you should reuse the slotId in the future. 
+    /// The page should always assign the lowest available slot_id to an insertion.
     ///
     /// HINT: You can copy/clone bytes into a slice using the following function.
     /// They must have the same size.
@@ -66,7 +67,7 @@ impl Page {
         panic!("TODO milestone pg");
     }
 
-    /// Create a new page from the byte array.
+    /// Deserialize bytes into Page
     ///
     /// HINT to create a primitive data type from a slice you can use the following
     /// (the example is for a u16 type and the data store in little endian)
@@ -75,7 +76,7 @@ impl Page {
         panic!("TODO milestone pg");
     }
 
-    /// Convert a page into bytes. This must be same size as PAGE_SIZE.
+    /// Serialize page into a byte array. This must be same size as PAGE_SIZE.
     /// We use a Vec<u8> for simplicity here.
     ///
     /// HINT: To convert a vec of bytes using little endian, use
@@ -131,29 +132,17 @@ impl Page {
     }
 }
 
+//TODO milestone pg
+ 
+
 /// The (consuming) iterator struct for a page.
 /// This should iterate through all valid values of the page.
-/// See https://stackoverflow.com/questions/30218886/how-to-implement-iterator-and-intoiterator-for-a-simple-struct
-pub struct PageIter<'a> {
-    //TODO milestone pg
-     
-}
-
 pub struct PageIntoIter {
     //TODO milestone pg
      
 }
 
-/// The implementation of the (consuming) page iterator.
-/// This should return the values in slotId order (ascending)
-impl<'a> Iterator for PageIter<'a> {
-    // Each item returned by the iterator is the bytes for the value and the slot id.
-    type Item = (Vec<u8>, SlotId);
-
-    fn next(&mut self) -> Option<Self::Item> {
-        panic!("TODO milestone pg");
-    }
-}
+panic!("TODO milestone pg");
 
 /// The implementation of the (consuming) page iterator.
 /// This should return the values in slotId order (ascending)
@@ -166,17 +155,7 @@ impl Iterator for PageIntoIter {
     }
 }
 
-/// The implementation of IntoIterator which allows an iterator to be created
-/// for a page. This should create the PageIter struct with the appropriate state/metadata
-/// on initialization.
-impl<'a> IntoIterator for &'a Page {
-    type Item = (Vec<u8>, SlotId);
-    type IntoIter = PageIter<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        panic!("TODO milestone pg");
-    }
-}
+panic!("TODO milestone pg");
 
 /// The implementation of IntoIterator which allows an iterator to be created
 /// for a page. This should create the PageIter struct with the appropriate state/metadata
@@ -220,7 +199,9 @@ impl fmt::Debug for Page {
                     buffer += "empty lines were hidden\n";
                     empty_lines_count = 0;
                 }
-                buffer += &format!("[0x{:08x}] ", pos);
+                // for hex offset
+                //buffer += &format!("[0x{:08x}] ", pos);
+                buffer += &format!("[{:4}] ", pos);
                 for i in 0..BYTES_PER_LINE {
                     match pv[i] {
                         0x00 => buffer += ".  ",
@@ -242,7 +223,9 @@ impl fmt::Debug for Page {
                     buffer += "empty lines were hidden\n";
                     empty_lines_count = 0;
                 }
-                buffer += &format!("[0x{:08x}] ", pos);
+                // for hex offset
+                //buffer += &format!("[0x{:08x}] ", pos);
+                buffer += &format!("[{:4}] ", pos);
                 for i in 0..remaining {
                     match pv[i] {
                         0x00 => buffer += ".  ",
@@ -294,7 +277,6 @@ mod tests {
         for x in &vals {
             p.add_value(x);
         }
-        println!("{:?}", p);
         assert_eq!(
             p.get_free_space(),
             PAGE_SIZE - p.get_header_size() - n * size
@@ -822,7 +804,9 @@ mod tests {
             };
         }
         // let (check_vals, check_slots): (Vec<Vec<u8>>, Vec<SlotId>) = p.into_iter().map(|(a, b)| (a, b)).unzip();
-        let mut check_vals: Vec<Vec<u8>> = (&p).into_iter().map(|(a, _)| a).collect();
+        let bytes = p.to_bytes();
+        let p_clone = Page::from_bytes(&bytes);
+        let mut check_vals: Vec<Vec<u8>> = p_clone.into_iter().map(|(a, _)| a).collect();
         assert!(compare_unordered_byte_vecs(&stored_vals, check_vals));
         trace!("\n==================\n PAGE LOADED - now going to delete to make room as needed \n =======================");
         // Delete and add remaining values until goes through all. Should result in a lot of random deletes and adds.
@@ -836,7 +820,9 @@ mod tests {
                     Some(new_slot) => {
                         stored_slots.push(new_slot);
                         stored_vals.push(bytes.clone());
-                        check_vals = (&p).into_iter().map(|(a, _)| a).collect();
+                        let bytes = p.to_bytes();
+                        let p_clone = Page::from_bytes(&bytes);
+                        check_vals = p_clone.into_iter().map(|(a, _)| a).collect();
                         assert!(compare_unordered_byte_vecs(&stored_vals, check_vals));
                         trace!("Added new value ({}) {:?}", new_slot, stored_slots);
                         added = true;

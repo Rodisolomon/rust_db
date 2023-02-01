@@ -73,6 +73,7 @@ impl HeapFile {
 
     /// Read the page from the file.
     /// Errors could arise from the filesystem or invalid pageId
+    /// Note: that std::io::{Seek, SeekFrom} require Write locks on the underlying std::fs::File
     pub(crate) fn read_page_from_file(&self, pid: PageId) -> Result<Page, CrustyError> {
         //If profiling count reads
         #[cfg(feature = "profile")]
@@ -85,7 +86,11 @@ impl HeapFile {
     /// Take a page and write it to the underlying file.
     /// This could be an existing page or a new page
     pub(crate) fn write_page_to_file(&self, page: Page) -> Result<(), CrustyError> {
-        trace!("Writing page {} to file {}", page.get_page_id(), self.container_id);
+        trace!(
+            "Writing page {} to file {}",
+            page.get_page_id(),
+            self.container_id
+        );
         //If profiling count writes
         #[cfg(feature = "profile")]
         {
@@ -107,7 +112,7 @@ mod test {
         init();
 
         //Create a temp file
-        let f = gen_random_dir();
+        let f = gen_random_test_sm_dir();
         let tdir = TempDir::new(f, true);
         let mut f = tdir.to_path_buf();
         f.push(gen_rand_string(4));

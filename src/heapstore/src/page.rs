@@ -132,8 +132,6 @@ impl Page {
     }
 }
 
-//TODO milestone pg
- 
 
 /// The (consuming) iterator struct for a page.
 /// This should iterate through all valid values of the page.
@@ -142,7 +140,6 @@ pub struct PageIntoIter {
      
 }
 
-panic!("TODO milestone pg");
 
 /// The implementation of the (consuming) page iterator.
 /// This should return the values in slotId order (ascending)
@@ -155,7 +152,6 @@ impl Iterator for PageIntoIter {
     }
 }
 
-panic!("TODO milestone pg");
 
 /// The implementation of IntoIterator which allows an iterator to be created
 /// for a page. This should create the PageIter struct with the appropriate state/metadata

@@ -19,6 +19,20 @@ pub struct StorageManager {
     pub storage_path: PathBuf,
     /// Indicates if this is a temp StorageManager (for testing)
     is_temp: bool,
+}
+
+/// The required functions in HeapStore's StorageManager that are specific for HeapFiles
+impl StorageManager {
+    /// Get a page if exists for a given container.
+    pub(crate) fn get_page(
+        &self,
+        container_id: ContainerId,
+        page_id: PageId,
+        _tid: TransactionId,
+        _perm: Permissions,
+        _pin: bool,
+    ) -> Option<Page> {
+        panic!("TODO milestone hs");
     }
 
     /// Write a page

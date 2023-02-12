@@ -42,7 +42,7 @@ impl ServerWrapper {
     pub fn new() -> std::result::Result<ServerWrapper, String> {
         // Configure log environment
         let child = ServerWrapper::setup_server().unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(100));
+        std::thread::sleep(std::time::Duration::from_millis(1000));
         match ServerWrapper::try_connect() {
             Ok(stream) => Ok(ServerWrapper { stream, child }),
             _ => Err("Failed to connect to server".to_owned()),

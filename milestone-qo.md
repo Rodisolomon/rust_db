@@ -128,13 +128,14 @@ then collect the PID and kill the process by doing:
 ```
 ## Scoring and Requirements
 
-70% of your score on this milestone is based on correctness that is demonstrated
+55% of your score on this milestone is based on correctness that is demonstrated
 by passing all of the provided unit and integration tests in the queryexe crate.
 This means when running `cargo test -p queryexe` all tests pass. 
 10% of your score is based on whether we can run queries that include
 aggregates, groupby, and joins end to end (so you should make sure this is
 possible and you may want to write additional tests to harden your
-implementation). 10% is based on code quality. 10% is based on your write 
+implementation). 15% of your score is based on the performance benchmarks.
+10% is based on code quality. 10% is based on your write 
 up (my-op.txt). The write up should contain:
 
  -  A brief description of your solution. In particular, include what design

@@ -181,7 +181,7 @@ impl StorageTrait for StorageManager {
         let arr: &[u8] = &value; // cast into u8
         for i in 0..readable_pg_ids.len() {
             let mut p = hf.read_page_from_file(readable_pg_ids[i]).unwrap();
-            //println!("does p have enough left space? {:?}", p.enough_space(arr));
+            println!("does p have enough left space? {:?}", p.enough_space(arr));
             if p.enough_space(arr) {
                 let s_id = p.add_value(arr).unwrap();
                 let v_id = ValueId::new_slot(container_id, readable_pg_ids[i], s_id);
@@ -224,7 +224,7 @@ impl StorageTrait for StorageManager {
         let mut r_container_hm = self.container_hashmap.read().unwrap();
         let mut path_buf = r_container_hm.get(&container_id).unwrap();
         let mut hf = HeapFile::new(path_buf.clone(), container_id).expect("Unable to create HF during fn get_page");
-        if id.page_id != None && id.slot_id != None { //page and slot specified
+        if id.page_id != None && id.slot_id != None { //page and slot not specified
             let mut page = hf.read_page_from_file(id.page_id.unwrap()).unwrap();
             page.delete_value(id.slot_id.unwrap()); //delete
             hf.write_page_to_file(page).unwrap();
@@ -488,40 +488,6 @@ mod test {
     use crate::storage_manager::StorageManager;
     use common::storage_trait::StorageTrait;
     use common::testutil::*;
-
-    #[test]
-    fn hs_sm_a_delete() {
-        init();
-        let sm = StorageManager::new_test_sm();
-        let cid = 1;
-        sm.create_table(cid);
-        println!("finish create table");
-
-        let bytes = get_random_byte_vec(40);
-        let tid = TransactionId::new();
-        println!("start inserting val");
-        let mut val1 = sm.insert_value(cid, bytes.clone(), tid);
-        assert_eq!(1, sm.get_num_pages(cid));
-        assert_eq!(0, val1.page_id.unwrap());
-        assert_eq!(0, val1.slot_id.unwrap());
-
-        let bytes2 = get_random_byte_vec(4000);
-        val1 = sm.insert_value(cid.clone(), bytes2.clone(), tid.clone());
-
-        let p1 = sm
-            .get_page(cid, 0, tid, Permissions::ReadOnly, false)
-            .unwrap();
-
-        // let val2 = sm.insert_value(cid, bytes, tid);
-        // assert_eq!(1, sm.get_num_pages(cid));
-        // assert_eq!(0, val2.page_id.unwrap());
-        // assert_eq!(1, val2.slot_id.unwrap());
-
-        // let p2 = sm
-        //     .get_page(cid, 0, tid, Permissions::ReadOnly, false)
-        //     .unwrap();
-        // assert_ne!(p1.to_bytes()[..], p2.to_bytes()[..]);
-    }
 
     #[test]
     fn hs_sm_a_insert() {

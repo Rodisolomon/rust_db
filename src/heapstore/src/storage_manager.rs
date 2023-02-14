@@ -181,7 +181,7 @@ impl StorageTrait for StorageManager {
         let arr: &[u8] = &value; // cast into u8
         for i in 0..readable_pg_ids.len() {
             let mut p = hf.read_page_from_file(readable_pg_ids[i]).unwrap();
-            println!("does p have enough left space? {:?}", p.enough_space(arr));
+            //println!("does p have enough left space? {:?}", p.enough_space(arr));
             if p.enough_space(arr) {
                 let s_id = p.add_value(arr).unwrap();
                 let v_id = ValueId::new_slot(container_id, readable_pg_ids[i], s_id);

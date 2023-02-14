@@ -7,7 +7,7 @@ use std::path::PathBuf;
 use std::path::Path;
 use std::sync::atomic::{AtomicU16, Ordering};
 use std::sync::{Arc, RwLock};
-
+use std::collections::HashMap;
 
 use std::io::BufWriter;
 use std::io::{Seek, SeekFrom};
@@ -30,6 +30,7 @@ pub(crate) struct HeapFile {
     pub file_lock: Arc<RwLock<File>>,
     //pub left_bytes: Arc<RwLock<u64>>,
     pub page_ids: Arc<RwLock<Vec<PageId>>>,
+    pub pg_id_hashmap: Arc<RwLock<HashMap<PageId,usize>>>,
     // Track this HeapFile's container Id
     pub container_id: ContainerId,
     // The following are for profiling/ correctness checks
@@ -47,7 +48,7 @@ impl HeapFile {
         //println!("{:?}", file_path);
 
         let file_path_clone = file_path.to_path_buf();
-        //println!("{:?}", Path::new(file_path_clone).file_stem().unwrap());
+        // println!("{:?}", Path::new(file_path_clone).file_stem().unwrap());
         if file_path_clone.extension() != None { //to counter hs_hf_insert who is adding random.hf
             //println!("end with hf");
             file_path.pop();
@@ -84,10 +85,15 @@ impl HeapFile {
             let mut offset = 0 as usize;
             let mut page_id_vec = Vec::new();
             let mut buf = vec![0; PAGE_SIZE];
+            let mut pg_id_hm = HashMap::new();
+            let mut i = 0;
             while offset < size {
                 file.seek(SeekFrom::Start(offset as u64))?;
                 file.read_exact(&mut buf)?;
                 let new_p = Page::from_bytes(&buf);
+
+                pg_id_hm.insert(new_p.page_id, i);
+                i += 1;
 
                 page_id_vec.push(new_p.page_id.clone());
                 offset += PAGE_SIZE;
@@ -96,6 +102,7 @@ impl HeapFile {
                 //TODO milestone hs
                 //left_bytes: Arc::new(RwLock::new( file.metadata().unwrap().len() )),
                 page_ids: Arc::new(RwLock::new(page_id_vec)),
+                pg_id_hashmap: Arc::new(RwLock::new(pg_id_hm)),
                 file_lock: Arc::new(RwLock::new(file)),
                 container_id: container_id,
                 read_count: AtomicU16::new(0),
@@ -108,6 +115,7 @@ impl HeapFile {
                 //TODO milestone hs
                 //left_bytes: Arc::new(RwLock::new( file.metadata().unwrap().len() )),
                 page_ids: Arc::new(RwLock::new(Vec::new())),
+                pg_id_hashmap: Arc::new(RwLock::new(HashMap::new())),
                 file_lock: Arc::new(RwLock::new(file)),
                 container_id: container_id,
                 read_count: AtomicU16::new(0),
@@ -134,24 +142,25 @@ impl HeapFile {
         {
             self.read_count.fetch_add(1, Ordering::Relaxed);
         }
-        let readable_pg_ids = self.page_ids.read().unwrap();
-        //println!("{:?}", readable_pg_ids);
-        let mut offset = 0;
-        for i in 0..readable_pg_ids.len() {
-            if pid == readable_pg_ids[i] {
-                let mut writable_f = self.file_lock.write().unwrap();
-                writable_f.seek(SeekFrom::Start(offset));
-                let mut buf = vec![0; 4096];
-                writable_f.read_exact(&mut buf)?; 
-                return Ok(Page::from_bytes(&buf));
 
-            } else {
-                offset += 4096;
-            }
+        let mut redable_hm = self.pg_id_hashmap.read().unwrap();
+        if !redable_hm.contains_key(&pid) { //pid doesn't exist
+            return Err(CrustyError::CrustyError(format!(
+                "Invalid pageID",
+            )))
         }
-        return Err(CrustyError::CrustyError(format!(
-            "Invalid pageID",
-        )))
+        
+        //find out
+
+        let idx = redable_hm.get(&pid).unwrap();
+        let mut offset = idx*PAGE_SIZE;
+        drop(redable_hm);
+        let mut writable_f = self.file_lock.write().unwrap();
+        writable_f.seek(SeekFrom::Start(offset as u64));
+        let mut buf = vec![0; 4096];
+        writable_f.read_exact(&mut buf)?; 
+        return Ok(Page::from_bytes(&buf));
+
     }
 
     /// Take a page and write it to the underlying file.
@@ -169,40 +178,51 @@ impl HeapFile {
         }
         let bytes = page.to_bytes();
 
-        let readable_pg_ids = self.page_ids.read().unwrap();
-        //println!("{:?}", readable_pg_ids);
-        //if this page exists
-        let mut offset = 0;
-        for i in 0..readable_pg_ids.len() {
-            if page.page_id == readable_pg_ids[i] {
-                let mut writable_f = self.file_lock.write().unwrap();
-                writable_f.seek(SeekFrom::Start(offset))?;
-                writable_f.write_all(&bytes).expect("write failed with exist pid"); //overwrite
-                return Ok(());
-            } else {
-                offset += 4096;
-            }
+        let readable_hm = self.pg_id_hashmap.read().unwrap();
+        let pid = page.page_id;
+        let exist = readable_hm.contains_key(&pid).clone();
+        drop(readable_hm);
+        if !exist { //this page doesn't exist in the file before
+            //println!("this page doesn't exist before");
+            //add to arr 
+            let mut writable_pg_ids = self.page_ids.write().unwrap();
+            writable_pg_ids.push(page.page_id);
+            let mut idx = writable_pg_ids.len() - 1;
+            drop(writable_pg_ids);
+            let idx_clone = idx.clone();
+            //add to hashmap
+            let mut writable_hm = self.pg_id_hashmap.write().unwrap();
+            writable_hm.insert(page.page_id, idx_clone);
+            drop(writable_hm);
+            //write to file
+            let mut writable_f = self.file_lock.write().unwrap();
+            let mut offset = idx_clone*PAGE_SIZE;
+            writable_f.seek(SeekFrom::Start(offset as u64))?;
+            writable_f.write_all(&bytes).expect("write failed with non-exist pid"); //expext is unwrap with an error message
+            drop(writable_f);
+            return Ok(());
+        } else { //if this page exists
+            let mut readable_hm = self.pg_id_hashmap.read().unwrap();
+            let idx = readable_hm.get(&pid).unwrap();
+            let idx_clone = idx.clone();
+            drop(readable_hm);
+            let mut writable_f = self.file_lock.write().unwrap();
+            let mut offset = idx_clone*PAGE_SIZE;
+            writable_f.seek(SeekFrom::Start(offset as u64))?;
+            writable_f.write_all(&bytes).expect("write failed with exist pid"); //overwrite
+            return Ok(());
         }
-        drop(readable_pg_ids);
+
 
         //this page doesn't exist in the file before
         //add to page id vectors
         //println!("this page doesn't exist before");
-        let mut writable_pg_ids = self.page_ids.write().unwrap();
-        writable_pg_ids.push(page.page_id);
-        //write to file
-        let mut writable_f = self.file_lock.write().unwrap();
-        writable_f.seek(SeekFrom::Start(offset))?;
-        writable_f.write_all(&bytes).expect("write failed with non-exist pid"); //expext is unwrap with an error message
+
         //println!("finish writing");
 
         // let mut writable_left = self.left_bytes.write().unwrap();
         // println!("{:?}", *writable_left);
         // *writable_left -= 4096;
-
-
-        
-        Ok(())
     }
 }
 
@@ -223,9 +243,9 @@ mod test {
         let mut f = tdir.to_path_buf();
         f.push(gen_rand_string(4));
         f.set_extension("hf");
-
+        //println!("start generating new hf");
         let mut hf = HeapFile::new(f.to_path_buf(), 0).expect("Unable to create HF for test");
-
+        //println!("finish generating new file");
         // Make a page and write
         let mut p0 = Page::new(0);
         let bytes = get_random_byte_vec(100);

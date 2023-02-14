@@ -4,8 +4,18 @@ use std::convert::TryInto;
 use std::fmt;
 use std::mem;
 
+
+// SIZES CONSTRAINTS:
+// pub type ContainerId = u16;
+// pub type AtomicContainerId = AtomicU16;
+// pub type SegmentId = u8;
+// pub type PageId = u16;
+// pub type SlotId = u16;
+//pub const FIXED_HEADER_SIZE: usize = 8;
+//pub const HEADER_PER_VAL_SIZE: usize = 6;
+
 // Type to hold any value smaller than the size of a page.
-// We choose u16 because it is sufficient to represent any slot that fits in a 4096-byte-sized page.
+// We choose u16 because it is sufficient to represent any slot that fits in a 4096-byte-sized page. 
 // Note that you will need to cast Offset to usize if you want to use it to index an array.
 pub type Offset = u16;
 // For debug
@@ -17,24 +27,31 @@ const BYTES_PER_LINE: usize = 40;
 /// 6 bytes per value/entry/slot stored. For example a page that has stored 3 values, can use
 /// up to 8+3*6=26 bytes, leaving the rest (PAGE_SIZE-26 for data) when serialized.
 /// If you delete a value, you do not need reclaim header space the way you must reclaim page
-/// body space. E.g., if you insert 3 values then delete 2 of them, your header can remain 26
+/// body space. E.g., if you insert 3 values then delete 2 of them, your header can remain 26 
 /// bytes & subsequent inserts can simply add 6 more bytes to the header as normal.
 /// The rest must filled as much as possible to hold values.
 pub(crate) struct Page {
     /// The data for data
-    data: [u8; PAGE_SIZE],
+    pub slot_data: Vec<SlotId>,
+    pub available_sid: Vec<u16>,
+    pub offset_data: Vec<u16>,
+    pub page_id: PageId,
+    pub real_data: Vec<u8>
+
 }
 
 /// The functions required for page
 impl Page {
     /// Create a new page
     pub fn new(page_id: PageId) -> Self {
-        panic!("TODO milestone pg");
+        let mut baby_page = Page {slot_data: Vec::new(), available_sid: Vec::new(), offset_data: Vec::new(), page_id: page_id, real_data: Vec::new()};
+        baby_page.available_sid.push(0 as u16);
+        baby_page
     }
 
     /// Return the page id for a page
     pub fn get_page_id(&self) -> PageId {
-        panic!("TODO milestone pg");
+        self.page_id
     }
 
 
@@ -43,20 +60,63 @@ impl Page {
     /// Note that where the bytes are stored in the page does not matter (heap), but it
     /// should not change the slotId for any existing value. This means that
     /// bytes in the page may not follow the slot order.
-    /// If a slot is deleted you should reuse the slotId in the future. 
-    /// The page should always assign the lowest available slot_id to an insertion.
+    /// If a slot is deleted you should replace the slotId on the next insert.
     ///
     /// HINT: You can copy/clone bytes into a slice using the following function.
     /// They must have the same size.
     /// self.data[X..y].clone_from_slice(&bytes);
 
+    pub fn enough_space(&mut self, bytes: &[u8]) -> bool {
+        let required_val:usize = bytes.iter().count() + 4;
+        // println!("required value: {:?}", required_val);
+        // println!("left space: {:?}", self.get_free_space());
+        if self.get_free_space() >= required_val {
+            //println!("there's enough space");
+            return true;
+        } 
+        return false;
+    }
+
     pub fn add_value(&mut self, bytes: &[u8]) -> Option<SlotId> {
-        panic!("TODO milestone pg");
+        let required_val:usize = bytes.iter().count() + 4;
+        if self.get_free_space() >= required_val {
+            for i in 0..bytes.len() {
+                self.real_data.push(bytes[i] as u8);
+            }
+            self.offset_data.push(bytes.len() as u16);
+
+            let n_slot_id:u16;
+            if self.available_sid.len() > 1 { //multiple ids, use the oldest one coming from the deleted entries (see more explanation in my-pg.txt)
+                n_slot_id = self.available_sid[1].clone();
+                self.available_sid.remove(1);
+            } else { //there's only one id exist
+                n_slot_id = self.available_sid[0].clone();
+                self.available_sid[0] += 1;
+            }
+            self.slot_data.push(n_slot_id);
+            return Some(n_slot_id);
+        } else {
+            None
+        }
     }
 
     /// Return the bytes for the slotId. If the slotId is not valid then return None
     pub fn get_value(&self, slot_id: SlotId) -> Option<Vec<u8>> {
-        panic!("TODO milestone pg");
+        if self.slot_data.is_empty() {
+            return None;
+        }
+        let mut start_point:usize = 0;
+        for (i, e) in self.slot_data.iter().enumerate() {
+            if *e == slot_id {
+                let end_point:usize = (self.offset_data[i].clone() as usize) + start_point;
+                let ret_vec = (&self.real_data.clone()[start_point..end_point]).to_vec();
+                return Some(ret_vec);
+            } else {
+                start_point += self.offset_data[i].clone() as usize;
+            }
+        }
+
+        None  
     }
 
     /// Delete the bytes/slot for the slotId. If the slotId is not valid then return None
@@ -64,16 +124,84 @@ impl Page {
     /// The space for the value should be free to use for a later added value.
     /// HINT: Return Some(()) for a valid delete
     pub fn delete_value(&mut self, slot_id: SlotId) -> Option<()> {
-        panic!("TODO milestone pg");
-    }
+        if self.slot_data.is_empty() {
+            return None;
+        }
+        let mut start_point:usize = 0;
+        for (i, e) in self.slot_data.iter().enumerate() {
+            if *e == slot_id {
+                self.available_sid.push(slot_id); //push to the available slot_id vector
+
+                //start removing stuff
+                let end_point:usize = (self.offset_data[i].clone() as usize) + start_point; //offset + i
+                self.real_data.drain(start_point..end_point); //ref: https://doc.rust-lang.org/beta/std/vec/struct.Vec.html#method.drain
+                self.offset_data.remove(i);
+                self.slot_data.remove(i);
+
+                return Some(());
+            } else {
+                start_point += (self.offset_data[i].clone() as usize)
+            }
+        }  
+        return None;              
+    } 
 
     /// Deserialize bytes into Page
     ///
     /// HINT to create a primitive data type from a slice you can use the following
     /// (the example is for a u16 type and the data store in little endian)
     /// u16::from_le_bytes(data[X..Y].try_into().unwrap());
+
+    // slot_data: Vec<SlotId>,
+    // available_sid: Vec<u16>,
+    // offset_data: Vec<u16>,
+    // page_id: PageId,
+    // real_data: Vec<u8>
     pub fn from_bytes(data: &[u8]) -> Self {
-        panic!("TODO milestone pg");
+        //helper function 
+        fn u8_to_u16(data:&[u8], i:usize) -> u16 {
+            let arr = [data[i], data[i+1]];
+            let value = u16::from_le_bytes(arr);
+            value
+        }
+        let mut i:usize = 0;
+
+        //fixed header data
+        let page_id:PageId = u8_to_u16(data, i);
+        let mut p = Page::new(page_id); //initialize
+        i += 2;
+        let offset_slot_num = u8_to_u16(data, i);
+        i += 2;
+        let sid_num = data[i];
+        i += 1;
+
+        //header data
+        let mut endpoint = i.clone() + (offset_slot_num as usize)*2;
+        while i < endpoint {
+            p.slot_data.push(u8_to_u16(data, i));
+            i += 2;
+        }
+        endpoint = i.clone() + (offset_slot_num as usize)*2;
+        while i < endpoint {
+            p.offset_data.push(u8_to_u16(data, i));
+            i += 2;
+        }
+        endpoint = i.clone() + (sid_num as usize)*2;
+        while i < endpoint {
+            p.available_sid.pop(); //pop i remained in initialization
+            p.available_sid.push(u8_to_u16(data, i));
+            i += 2;
+        }
+
+        //real data
+        let s = p.offset_data.iter().fold(0u32, |sum, i| sum + (*i as u32)); //https://www.reddit.com/r/learnrust/comments/pbpr73/vector_sum_question/
+        endpoint = i.clone() + s as usize;
+        while i < endpoint {
+            p.real_data.push(data[i]);
+            i += 1;
+        }        
+
+        p
     }
 
     /// Serialize page into a byte array. This must be same size as PAGE_SIZE.
@@ -83,7 +211,56 @@ impl Page {
     /// to_le_bytes().to_vec()
     /// HINT: Do not use the self debug ({:?}) in this function, which calls this function.
     pub fn to_bytes(&self) -> Vec<u8> {
-        panic!("TODO milestone pg");
+        //helper function to convert u16 -> [2;u8] in little endian
+        fn u16_push_bytes(mut bytes:Vec<u8>, data:u16) -> Vec<u8> {
+            let u16_bytes = data.to_le_bytes();
+            bytes.push(u16_bytes[0]);
+            bytes.push(u16_bytes[1]);
+            return bytes;
+        }
+        //ORDER of serialization:
+        //=>5 = pageID (1*u16), number of slot&offset (1*u16), number of available id (u8), (fixed headersize)
+        //=>slot_data, offset_data, available_sid
+        //=>real_data
+        let mut byte_left:u16 = 4091; //4096 - 5 = 4091
+        let mut bytes:Vec<u8> = Vec::new();
+
+        //push fixed data of header, caution that page_id and slot&offset are in little endian
+        bytes = u16_push_bytes(bytes, self.page_id);
+
+        let number_slot_n_offset:u16 = self.slot_data.iter().count() as u16;
+        bytes = u16_push_bytes(bytes, number_slot_n_offset);
+
+        let number_sid:u8 = self.available_sid.iter().count() as u8;
+        bytes.push(number_sid);
+
+        //push header, all in little endian
+        byte_left = byte_left - number_slot_n_offset*4 - (number_sid as u16)*2;
+        for (i, e) in self.slot_data.iter().enumerate() {
+            bytes = u16_push_bytes(bytes, *e);
+        }
+        for (i, e) in self.offset_data.iter().enumerate() {
+            bytes = u16_push_bytes(bytes, *e);
+        }      
+        for (i, e) in self.available_sid.iter().enumerate() {
+            bytes = u16_push_bytes(bytes, *e);
+        }        
+
+        //push real data
+        let byte_block:u16 = self.real_data.iter().count() as u16;
+        // println!("byte left {:?}", byte_left);
+        // println!("byte to be pushed {:?}", byte_block);
+        byte_left -= byte_block;
+        for (i, e) in self.real_data.iter().enumerate() {
+            bytes.push(*e);
+        } 
+
+        //fill up
+        while byte_left > 0 {
+            bytes.push(0 as u8); //0 is placholder
+            byte_left -= 1;
+        }
+        return bytes;
     }
 
     /// A utility function to determine the size of the header in the page
@@ -91,7 +268,8 @@ impl Page {
     /// Will be used by tests. Optional for you to use in your code
     #[allow(dead_code)]
     pub(crate) fn get_header_size(&self) -> usize {
-        panic!("TODO milestone pg");
+        let ret:usize = self.slot_data.iter().count()*2 + self.offset_data.iter().count()*2 + self.available_sid.iter().count()*2+ 5;//the integer is constant PageId size + number_slot_n_offset + number_sid
+        ret
     }
 
     /// A utility function to determine the total current free space in the page.
@@ -99,7 +277,8 @@ impl Page {
     /// Will be used by tests. Optional for you to use in your code, but strongly suggested
     #[allow(dead_code)]
     pub(crate) fn get_free_space(&self) -> usize {
-        panic!("TODO milestone pg");
+        let ret:usize = PAGE_SIZE - self.get_header_size() - self.real_data.iter().count();
+        ret
     }
 
     /// Utility function for comparing the bytes of another page.
@@ -133,11 +312,16 @@ impl Page {
 }
 
 
-/// The (consuming) iterator struct for a page.
-/// This should iterate through all valid values of the page.
+//the structure to hold data for one single entry
+pub struct data_block {
+    pub data: Vec<u8>,
+    pub offset: u16,
+    pub sid: u16,
+}
+
 pub struct PageIntoIter {
-    //TODO milestone pg
-     
+    pub blocks: Vec<data_block>,
+    pub index: usize
 }
 
 
@@ -148,11 +332,21 @@ impl Iterator for PageIntoIter {
     type Item = (Vec<u8>, SlotId);
 
     fn next(&mut self) -> Option<Self::Item> {
-        panic!("TODO milestone pg");
+        if self.index == self.blocks.len(){
+            None
+        } else {
+            let cur_i = self.index.clone();
+            self.index += 1;
+            return Some((self.blocks[cur_i].data.clone(), self.blocks[cur_i].sid.clone()));
+        }
     }
 }
 
-
+    // slot_data: Vec<SlotId>,
+    // available_sid: Vec<u16>,
+    // offset_data: Vec<u16>,
+    // page_id: PageId,
+    // real_data: Vec<u8>
 /// The implementation of IntoIterator which allows an iterator to be created
 /// for a page. This should create the PageIter struct with the appropriate state/metadata
 /// on initialization.
@@ -161,7 +355,16 @@ impl IntoIterator for Page {
     type IntoIter = PageIntoIter;
 
     fn into_iter(self) -> Self::IntoIter {
-        panic!("TODO milestone pg");
+        let mut blocks:Vec<data_block> = vec![];
+        for (i, e) in self.slot_data.iter().enumerate() {
+            let data:Vec<u8> = self.get_value(*e).unwrap();
+            let new_block = data_block {data: data, offset: self.offset_data[i], sid: *e};
+            blocks.push(new_block);
+        }
+        //sort blocks based on ascending slot id
+        blocks.sort_by_key(|x| x.sid);
+        let ret = PageIntoIter {blocks:blocks, index:0};
+        return ret;
     }
 }
 
@@ -195,9 +398,7 @@ impl fmt::Debug for Page {
                     buffer += "empty lines were hidden\n";
                     empty_lines_count = 0;
                 }
-                // for hex offset
-                //buffer += &format!("[0x{:08x}] ", pos);
-                buffer += &format!("[{:4}] ", pos);
+                buffer += &format!("[0x{:08x}] ", pos);
                 for i in 0..BYTES_PER_LINE {
                     match pv[i] {
                         0x00 => buffer += ".  ",
@@ -219,9 +420,7 @@ impl fmt::Debug for Page {
                     buffer += "empty lines were hidden\n";
                     empty_lines_count = 0;
                 }
-                // for hex offset
-                //buffer += &format!("[0x{:08x}] ", pos);
-                buffer += &format!("[{:4}] ", pos);
+                buffer += &format!("[0x{:08x}] ", pos);
                 for i in 0..remaining {
                     match pv[i] {
                         0x00 => buffer += ".  ",
@@ -273,6 +472,7 @@ mod tests {
         for x in &vals {
             p.add_value(x);
         }
+        println!("{:?}", p);
         assert_eq!(
             p.get_free_space(),
             PAGE_SIZE - p.get_header_size() - n * size
@@ -799,16 +999,18 @@ mod tests {
                 }
             };
         }
+        println!("pass first part");
         // let (check_vals, check_slots): (Vec<Vec<u8>>, Vec<SlotId>) = p.into_iter().map(|(a, b)| (a, b)).unzip();
         let bytes = p.to_bytes();
         let p_clone = Page::from_bytes(&bytes);
         let mut check_vals: Vec<Vec<u8>> = p_clone.into_iter().map(|(a, _)| a).collect();
         assert!(compare_unordered_byte_vecs(&stored_vals, check_vals));
+        println!("\n==================\n PAGE LOADED - now going to delete to make room as needed \n =======================");
         trace!("\n==================\n PAGE LOADED - now going to delete to make room as needed \n =======================");
         // Delete and add remaining values until goes through all. Should result in a lot of random deletes and adds.
         while !original_vals.is_empty() {
             let bytes = original_vals.pop_front().unwrap();
-            trace!("Adding new value (left:{}). Need to make space for new record (len:{}).\n - Stored_slots {:?}", original_vals.len(), &bytes.len(), stored_slots);
+            println!("Adding new value (left:{}). Need to make space for new record (len:{}).\n - Stored_slots {:?}", original_vals.len(), &bytes.len(), stored_slots);
             let mut added = false;
             while !added {
                 let try_slot = p.add_value(&bytes);
@@ -820,7 +1022,7 @@ mod tests {
                         let p_clone = Page::from_bytes(&bytes);
                         check_vals = p_clone.into_iter().map(|(a, _)| a).collect();
                         assert!(compare_unordered_byte_vecs(&stored_vals, check_vals));
-                        trace!("Added new value ({}) {:?}", new_slot, stored_slots);
+                        println!("Added new value ({}) {:?}", new_slot, stored_slots);
                         added = true;
                     }
                     None => {
@@ -834,7 +1036,7 @@ mod tests {
                         stored_vals.remove(random_idx);
                         p.delete_value(value_id_to_del)
                             .expect("Error deleting slot_id");
-                        trace!("Stored vals left {}", stored_slots.len());
+                        println!("Stored vals left {}", stored_slots.len());
                     }
                 }
             }

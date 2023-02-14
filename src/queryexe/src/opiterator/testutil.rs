@@ -43,10 +43,28 @@ pub fn match_all_tuples(
     mut iter1: Box<dyn OpIterator>,
     mut iter2: Box<dyn OpIterator>,
 ) -> Result<(), CrustyError> {
+    let mut t1s = Vec::new();
+    let mut t2s = Vec::new();
     while let Some(t1) = iter1.next()? {
-        let t2 = iter2.next()?.unwrap();
-        assert_eq!(t1, t2);
+        t1s.push(t1.clone());
     }
-    assert!(iter2.next()?.is_none());
+    while let Some(t2) = iter2.next()? {
+        t2s.push(t2.clone());
+    }
+
+    assert_eq!(t1s.len(), t2s.len());
+
+    for t1 in t1s.iter() {
+        let mut found = false;
+        for (i, t2) in t2s.iter().enumerate() {
+            if t1 == t2 {
+                found = true;
+                t2s.remove(i);
+                break;
+            }
+        }
+
+        assert!(found);
+    }
     Ok(())
 }

@@ -61,8 +61,7 @@ pub fn bench_page_insert(vals: &[Vec<u8>]) {
 }
 
 pub fn bench_sm_insert(sm: &StorageManager, to_insert: &[Vec<u8>]) {
-    let cid = 1; //TODO make random
-    sm.create_table(cid).unwrap();
+    let cid = 1;
     let tid = TransactionId::new();
     for x in to_insert {
         sm.insert_value(cid, x.to_vec(), tid);

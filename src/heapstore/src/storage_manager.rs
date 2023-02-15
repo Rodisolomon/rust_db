@@ -143,7 +143,7 @@ impl StorageTrait for StorageManager {
             let new_manager = StorageManager {
                 storage_path: storage_path, 
                 arc_s_path: Arc::new(RwLock::new(p_clone_2)), 
-                container_hashmap: Arc::new(RwLock::new(HashMap::new())), 
+                container_hashmap: Arc::new(RwLock::new(shm.h)), 
                 f_hf: Arc::new(RwLock::new(HashMap::new())),
                 is_temp: false};
             return new_manager;

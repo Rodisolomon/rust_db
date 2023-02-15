@@ -11,6 +11,7 @@ use std::fs::File;
 use std::path::PathBuf;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, RwLock};
+
 use serde::{Serialize, Deserialize};
 use serde_json;
 use std::path::Path;
@@ -19,13 +20,13 @@ use std::io::Write;
 
 
 /// The StorageManager struct
-#[derive(Serialize, Deserialize)]
 pub struct StorageManager {
     /// Path to database metadata files.
     pub storage_path: PathBuf,
     pub arc_s_path: Arc<RwLock<PathBuf>>,
     /// Indicates if this is a temp StorageManager (for testing)
-    pub container_hashmap: Arc<RwLock<HashMap<u16, PathBuf>>>, //path to hf
+    pub container_hashmap: Arc<RwLock<HashMap<ContainerId, PathBuf>>>, //path to hf
+    f_hf: Arc<RwLock<HashMap<ContainerId, Arc<HeapFile>>>>,
     is_temp: bool,
 }
 
@@ -33,6 +34,7 @@ pub struct StorageManager {
 pub struct serde_hashmap {
     h: HashMap<u16, PathBuf>,
 }
+
 /// The required functions in HeapStore's StorageManager that are specific for HeapFiles
 impl StorageManager {
     /// Get a page if exists for a given container.
@@ -121,7 +123,12 @@ impl StorageTrait for StorageManager {
 
         if !Path::new(&p_clone_1).exists() { //this is not a shutdown scenario
             fs::create_dir(p_clone_1);
-            let new_manager = StorageManager {storage_path: storage_path, arc_s_path: Arc::new(RwLock::new(p_clone_2)), container_hashmap: Arc::new(RwLock::new(HashMap::new())), is_temp: false};
+            let new_manager = StorageManager {
+                storage_path: storage_path, 
+                arc_s_path: Arc::new(RwLock::new(p_clone_2)), 
+                container_hashmap: Arc::new(RwLock::new(HashMap::new())),
+                f_hf: Arc::new(RwLock::new(HashMap::new())),
+                is_temp: false};
             return new_manager;
         } else {
             let file = File::open("data.json").unwrap();
@@ -133,7 +140,12 @@ impl StorageTrait for StorageManager {
             // let hashmap: HashMap<_, _> = ids.iter().zip(pathbufs.iter()).collect();
 
 
-            let new_manager = StorageManager {storage_path: storage_path, arc_s_path: Arc::new(RwLock::new(p_clone_2)), container_hashmap: Arc::new(RwLock::new(shm.h)), is_temp: false};
+            let new_manager = StorageManager {
+                storage_path: storage_path, 
+                arc_s_path: Arc::new(RwLock::new(p_clone_2)), 
+                container_hashmap: Arc::new(RwLock::new(HashMap::new())), 
+                f_hf: Arc::new(RwLock::new(HashMap::new())),
+                is_temp: false};
             return new_manager;
 
         }
@@ -148,7 +160,12 @@ impl StorageTrait for StorageManager {
         println!("Making new temp storage_manager {:?}", storage_path);
         let mut p_clone_2 = storage_path.to_path_buf();
         fs::create_dir(p_clone_2);
-        let new_t_manager = StorageManager {storage_path: storage_path, arc_s_path: Arc::new(RwLock::new(p_clone)), container_hashmap: Arc::new(RwLock::new(HashMap::new())), is_temp: true};
+        let new_t_manager = StorageManager {
+            storage_path: storage_path, 
+            arc_s_path: Arc::new(RwLock::new(p_clone)), 
+            container_hashmap: Arc::new(RwLock::new(HashMap::new())),
+            f_hf: Arc::new(RwLock::new(HashMap::new())),
+            is_temp: true};
         new_t_manager
     }
 
@@ -174,11 +191,28 @@ impl StorageTrait for StorageManager {
         } else if w_container_hm.get(&container_id) == None { //container must have already been created
             panic!("This container doesn't exists in the storage manager");
         }
-        let path_buf = w_container_hm.get(&container_id).unwrap().to_path_buf();
+        let mut exist = false;
         //insertion
-        let mut hf = HeapFile::new(path_buf, container_id).expect("Unable to create HF when inserting bytes");
-        let readable_pg_ids = hf.page_ids.read().unwrap();
+        let mut writable_hf = self.f_hf.write().unwrap();
+        
+        let mut hf:Arc<HeapFile>;
+        if writable_hf.contains_key(&container_id) {
+            //println!("wow key exists");
+            //println!("{:?}", writable_hf);
+            hf = writable_hf.get(&container_id).unwrap().clone();
+            exist = true;
+        } else {
+            //println!("key doesn't exist");
+            let path_buf = w_container_hm.get(&container_id).unwrap().to_path_buf().clone();
+            hf = Arc::new(HeapFile::new(path_buf, container_id).expect("Unable to create HF when inserting bytes"));
+        }
+        drop(writable_hf);
+        let a = hf.page_ids.read().unwrap();
+        let readable_pg_ids = a.clone();
+        drop(a);
+
         let arr: &[u8] = &value; // cast into u8
+        //println!("start updating");
         for i in 0..readable_pg_ids.len() {
             let mut p = hf.read_page_from_file(readable_pg_ids[i]).unwrap();
             //println!("does p have enough left space? {:?}", p.enough_space(arr));
@@ -186,20 +220,41 @@ impl StorageTrait for StorageManager {
                 let s_id = p.add_value(arr).unwrap();
                 let v_id = ValueId::new_slot(container_id, readable_pg_ids[i], s_id);
                 hf.write_page_to_file(p);
+                if !exist {
+                    let mut writable_hf = self.f_hf.write().unwrap();
+                    writable_hf.insert(container_id, hf);
+                }
                 return v_id;
             } else { //doesnt have enough space
                 continue;
             }
         }
         //all pages full or there's no table, create a new one
+
         let mut new_p = Page::new(readable_pg_ids.len() as u16);
         drop(readable_pg_ids);
         let new_page_id = new_p.page_id;
         let s_id = new_p.add_value(arr).unwrap();
         hf.write_page_to_file(new_p);
         let v_id = ValueId::new_slot(container_id, new_page_id, s_id);
+
+        if !exist {
+            let mut writable_hf = self.f_hf.write().unwrap();
+            writable_hf.insert(container_id, hf);
+        }
+
         return v_id;
     }
+    // fn helper(
+    //     &self,
+    //     container_id: ContainerId,
+    //     idx: usize,
+    // ) -> Result<(), CrustyError> {
+    //     let path_buf = w_container_hm.get(&container_id).unwrap().to_path_buf();
+    //     hf = HeapFile::new(path_buf, container_id).expect("Unable to create HF when inserting bytes");
+    //     let mut writable_hf = self.f_hf.write().unwrap();
+    //     writable_hf.insert(container_id, Arc::new(hf));
+    // }
         
 
     /// Insert some bytes into a container for vector of values (e.g. record).

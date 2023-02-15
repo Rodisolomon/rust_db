@@ -25,6 +25,7 @@ use std::io::{Seek, SeekFrom};
 ///
 /// Your code should persist what information is needed to recreate the heapfile.
 ///
+#[derive(Debug)]
 pub(crate) struct HeapFile {
     //TODO milestone hs
     pub file_lock: Arc<RwLock<File>>,
@@ -178,6 +179,7 @@ impl HeapFile {
                 let mut writable_f = self.file_lock.write().unwrap();
                 writable_f.seek(SeekFrom::Start(offset))?;
                 writable_f.write_all(&bytes).expect("write failed with exist pid"); //overwrite
+                drop(writable_f);
                 return Ok(());
             } else {
                 offset += 4096;

@@ -1,0 +1,65 @@
+This Crustydb file managemenet system is consist of four parts
+1. page, mostly described in the page write-up
+2. heapfile
+    structure:
+        pub file_lock: Arc<RwLock<File>>, //the physical file of heapfile in the disk
+        pub page_ids: Arc<RwLock<Vec<PageId>>>, //page ids in this heapfile
+        pub container_id: ContainerId, //container ID of heapfile
+    Important Traits:
+        new (construct function):
+            check whether this heapfile already exist. If so rebuild page_ids by iteration
+            otherwise initialize an empty vector
+        read_page_from_file:
+            I looping through the vector of page_ids and create an offset based on that. read 4096 bytes from the file (reason of that see the last section)
+        write_page_to_file:
+            similar iteration seeking method as read. 
+            if the page exist, overwrite. Otherwise append to the end of file
+3. Heapfile iterator
+    Structure:
+        pub tid: TransactionId,
+        heapfile: Arc<HeapFile>,
+        pub pg_index: usize, //use to keep track of the ongoing page
+        pub pg_iter: PageIntoIter, //use to hold the the iterator of a page
+        pub flag: bool, //whether it is the end of the page
+    Important Traits:
+        next:
+            there're two scenario needs to handled
+            1. end of the heapfile (return none)
+            2. end of the page: update pg_index, flag to false. the last part of the code will be executed w/ negative flag
+            3. normal scenario
+
+4. storage managemer
+    Structure:
+        pub storage_path: PathBuf //storage path, all heapfile and the data.json file stored in this directory
+        pub arc_s_path: Arc<RwLock<PathBuf>>, //similar to storage_path, just used for referring purpose when the function has only &self
+        pub container_hashmap: Arc<RwLock<HashMap<ContainerId, PathBuf>>>, //keep track of container and their heapfile storage directory, will be converted to a json file in shutdown
+        f_hf: Arc<RwLock<HashMap<ContainerId, Arc<HeapFile>>>>, //use for quick look-up of heapfile during inserting
+    Important Traits:
+        new (construct function):
+            check if the storage path already exist:
+                X SM is created for the first time
+                √ deserialize data.json from storage path
+        (similar in new_test_sm)
+        insert_value:
+            check the container_id as key present in hashmap f_hf:
+                X get path_buf from build heapfile from arc_s_path, build a new heapfile, write to it, and add to f_hf
+                √ pull out the HeapFile Struct object, directly write to it
+            check if there's enough space in the heapfile by looping through page_ids:
+                X if all pages full or there's no page at all: create a new one
+                √ write to it
+        update_value:
+            delete original value, check if the new value fit the rest size of the page
+                X add it to a new page (both scenario handled by inser_value)
+                √ add to the end of page
+        shutdown:
+            convert container_hashmap into data.json file using serde.  
+
+
+
+
+* possible places to update:
+    In the recent submission I still fail the hidden test 1, and the second and third benchmark test. 
+    The benchmark is probably caused by the iteration look-up method. (tried to change to hashmap but messy read-write lock involved, didn't have enough time)
+    hidden-test 1 is probably caused by the un-tested function. (deletion for example)
+    Will fix them in resubmission
+

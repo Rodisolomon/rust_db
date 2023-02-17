@@ -63,7 +63,7 @@ impl<'a, T: 'a + Catalog> TranslateAndValidate<'a, T> {
 
         let mut field = None;
         for table in &self.tables {
-            let table_id = self.catalog.get_table_id(&identifiers[0].to_string());
+            let table_id = self.catalog.get_table_id(table);
 
             if table_id.is_some() && self.catalog.is_valid_column(table_id.unwrap(), &orig) {
                 if field.is_some() {
@@ -108,8 +108,7 @@ impl<'a, T: 'a + Catalog> TranslateAndValidate<'a, T> {
     fn process_query(&mut self, query: &sqlparser::ast::Query) -> Result<(), CrustyError> {
         match &query.body {
             SetExpr::Select(b) => {
-                let select = &*b;
-                self.process_select(select)
+                self.process_select(b)
             }
             SetExpr::Query(_) => {
                 //TODO NOT HANDLED

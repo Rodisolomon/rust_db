@@ -367,6 +367,7 @@ impl StorageManager {
         let entries: Vec<fs::DirEntry> = fs::read_dir(&path)
             .unwrap()
             .filter_map(Result::ok)
+            .filter(|x| !x.path().is_dir())
             .filter(|x| x.path().extension().unwrap() == "ms")
             .collect();
         // populate

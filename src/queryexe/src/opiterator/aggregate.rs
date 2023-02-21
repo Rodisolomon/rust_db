@@ -363,13 +363,13 @@ impl Aggregate {
 impl OpIterator for Aggregate {
     fn open(&mut self) -> Result<(), CrustyError> {
         self.open = true;
-        self.child.open();
+        self.child.open()?;
         while let Some(t) = self.child.next()? {
             //println!("{:?}", t.clone());
             self.aggregator.merge_tuple_into_group(&t);
         }
         self.agg_iter = self.aggregator.iterator();
-        self.agg_iter.open();
+        self.agg_iter.open()?;
         Ok(())
     }
 
@@ -387,7 +387,7 @@ impl OpIterator for Aggregate {
         }   
         self.open = false;
         self.child.close()?;
-        self.agg_iter.close();
+        self.agg_iter.close()?;
         Ok(())
     }
 
@@ -397,7 +397,7 @@ impl OpIterator for Aggregate {
         }
         self.child.rewind()?;
         self.close()?;
-        self.open();
+        self.open()?;
         self.agg_iter.rewind()?;
         Ok(())
     }

@@ -31,7 +31,7 @@ mod worker;
 /// the storage manager by changing one use statement.
 pub use common::storage_trait::StorageTrait;
 // pub use memstore::storage_manager::StorageManager;
-pub use heapstore::storage_manager::StorageManager;
+pub use memstore::storage_manager::StorageManager;
 pub use queryexe;
 pub use queryexe::query::Executor;
 

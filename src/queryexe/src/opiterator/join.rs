@@ -113,7 +113,7 @@ impl OpIterator for Join {
         }
 
 
-        let right_option = self.right_child.next().unwrap();
+        let mut right_option = self.right_child.next().unwrap();
         //println!("{:?}", right_option);
 
         let mut new_right_tuple;

@@ -1,14 +1,18 @@
 use super::{OpIterator, TupleIterator};
 use common::{AggOp, Attribute, CrustyError, DataType, Field, TableSchema, Tuple};
+use serde::ser::Error;
+use serde_cbor::tags::current_cbor_tag;
 use std::cmp::{max, min};
 use std::collections::HashMap;
+use std::sync::{Arc, RwLock};
+
 
 /// Contains the index of the field to aggregate and the operator to apply to the column of each group. (You can add any other fields that you think are neccessary)
 #[derive(Clone)]
 pub struct AggregateField {
     /// Index of field being aggregated.
     pub field: usize,
-    /// Agregate operation to aggregate the column with.
+    /// Agregate operation to aggregate the column with. 
     pub op: AggOp,
 }
 
@@ -16,10 +20,17 @@ pub struct AggregateField {
 struct Aggregator {
     /// Aggregated fields.
     agg_fields: Vec<AggregateField>,
+    ori_datatype: Vec<i32>, //keep track of the datatype of the field been aggregated, initiate as -1, 0 means i32, 1 means string; as same length of agg_field
     /// Group by fields
     groupby_fields: Vec<usize>,
     /// Schema of the output.
     schema: TableSchema,
+    groups: HashMap<String, Vec<Field>>,
+    groups_count: HashMap<String, usize>,
+    groups_lst: Vec<String>,//keep track of the order of groups
+    num: usize, //keep track of the tot number of tuple added
+    avg_lst: Vec<usize>, //keep track of the index in schema that is avg
+
 }
 
 impl Aggregator {
@@ -35,11 +46,39 @@ impl Aggregator {
         groupby_fields: Vec<usize>,
         schema: &TableSchema,
     ) -> Self {
-        panic!("TODO milestone op");
+        let mut avg_lst = Vec::new();
+        let mut i = groupby_fields.len();
+        for ag in agg_fields.clone() {
+            let sub_result = match ag.op {
+                AggOp::Avg => 1, //calculate as sum first, avg in the end
+                AggOp::Count => 0,
+                AggOp::Max => 0,
+                AggOp::Min => 0,
+                AggOp::Sum => 0,
+            };
+            if sub_result == 1 {
+                avg_lst.push(i);
+            }
+            i += 1;
+        }
+
+        let length = groupby_fields.clone().len() + agg_fields.clone().len();
+
+        let new_aggregator = Aggregator {
+            agg_fields: agg_fields,
+            ori_datatype: vec![-1; length],
+            groupby_fields: groupby_fields,
+            schema: schema.clone(),
+            groups: HashMap::new(),
+            groups_count: HashMap::new(),
+            groups_lst: Vec::new(),
+            num: 0,
+            avg_lst: avg_lst,
+        };
+        return new_aggregator;
     }
 
-
-    /// Handles the creation of groups for aggregation.
+    /// Handles the creation of groups for aggregation. handle group by
     ///
     /// If a group exists, then merge the tuple into the group's accumulated value.
     /// Otherwise, create a new group aggregate result.
@@ -47,15 +86,199 @@ impl Aggregator {
     /// # Arguments
     ///
     /// * `tuple` - Tuple to add to a group.
-    pub fn merge_tuple_into_group(&mut self, tuple: &Tuple) {
-        panic!("TODO milestone op");
+    /// 
+
+    fn Op_treatment(&mut self, tuple: &Tuple, exist: bool, cur_key: String) { //helper to update groups hashmap
+        self.num += 1;
+        //let length = self.groupby_fields.len().clone() + self.agg_fields.len().clone(); //lenght of the tuple
+        // println!("{:?}", exist);
+        // println!("{:?}", self.ori_datatype.clone());
+        if exist { //key exist, update
+            let mut new_vec = self.groups.get(&cur_key.clone()).unwrap().clone();
+            let mut i = self.groupby_fields.len().clone(); //length of the groupby part
+            let mut new_count = self.groups_count.get(&cur_key).unwrap().clone() + 1;
+            self.groups_count.insert(cur_key.clone(), new_count); //update the number of object for this group. 
+
+            for ag in self.agg_fields.clone() {
+                //self.ori_datatype[i] must be initialized if this group exist
+                let mut original_vec = self.groups.get(&cur_key.clone()).unwrap().clone();
+                let mut original_val = original_vec[i].clone();
+
+                if self.ori_datatype[i] == 1 { //string, only count, min or max
+                    let val_string =  match original_val.clone() {
+                        Field::IntField(x) => 0, // count
+                        Field::StringField(s) => 1, //min or max
+                    };
+                    if val_string == 1 {
+                        let mut str1 = original_val.unwrap_string_field().clone();
+                        let mut new_val = tuple.get_field(ag.field).unwrap().unwrap_string_field().clone();
+                        let maximum = str1.max(new_val).to_string();
+                        let minimum = str1.min(new_val).to_string();
+                        let sub_result: Field = match ag.op {
+                            AggOp::Max => Field::StringField(maximum),
+                            AggOp::Min => Field::StringField(minimum),
+                            AggOp::Avg => todo!(),
+                            AggOp::Count => todo!(),
+                            AggOp::Sum => todo!(),
+                        };
+                        new_vec[i] = sub_result;
+                    } else {
+                        new_vec[i] = Field::IntField(new_count as i32); //count
+                    }
+                    i += 1;
+                    continue;
+                }
+                let mut int_original_val = original_val.clone().unwrap_int_field();
+                let mut new_val = tuple.get_field(ag.field).unwrap().clone().unwrap_int_field();
+                let maximum;
+                let minimum;
+                if int_original_val.clone() > new_val.clone() { //determine max and min
+                    maximum = int_original_val.clone();
+                    minimum = new_val.clone();
+ 
+                } else {
+                    maximum = new_val.clone();
+                    minimum = int_original_val.clone();
+                }
+                // let new_avg = (int_original_val*(new_count as i32 - 1) + new_val)/(new_count as i32);
+                // println!("{:?}", (int_original_val*(new_count as i32 - 1) + new_val));
+                let sub_result = match ag.op {
+                    AggOp::Avg => int_original_val + new_val, //calculate as sum first, avg in the end
+                    AggOp::Count => new_count as i32,
+                    AggOp::Max => maximum,
+                    AggOp::Min => minimum,
+                    AggOp::Sum => int_original_val + new_val,
+                };
+                //println!("{:?} with original val {:?}, new val {:?}, and new count {} new result is {:?}", ag.op.clone(), int_original_val.clone(), new_val.clone(), new_count.clone(), sub_result.clone());
+                new_vec[i] = Field::IntField(sub_result);
+                i += 1;
+            }
+            self.groups.insert(cur_key, new_vec);
+        } else { //doesn't exist before
+            let mut new_vec = Vec::new();
+            let mut i = 0;
+            for gb in self.groupby_fields.clone() { //add groupby firstly
+                let string =  match tuple.get_field(gb).unwrap() {
+                    Field::IntField(x) => 0,
+                    Field::StringField(s) => 1,
+                };
+                if string == 1 {
+                    new_vec.push(Field::StringField(tuple.get_field(gb).unwrap().unwrap_string_field().to_string()));
+
+                } else {
+                    new_vec.push(Field::IntField(tuple.get_field(gb).unwrap().unwrap_int_field()));
+
+                }
+                i += 1;
+            }
+
+            //add aggregate field secondly
+            for ag in self.agg_fields.clone() { 
+                if self.ori_datatype[i] == -1 {//uninitiate
+                    let string =  match tuple.get_field(ag.field).unwrap() {
+                        Field::IntField(x) => 0,
+                        Field::StringField(s) => 1,
+                    };
+                    self.ori_datatype[i] = string;
+                }
+                let value;
+                if self.ori_datatype[i] == 1{  //string can only be aggregated about count, min, max
+                    let sub_result = match ag.op {
+                        AggOp::Avg => -1,
+                        AggOp::Count => 1 as i32,
+                        AggOp::Max => 2,
+                        AggOp::Min => 3,
+                        AggOp::Sum => -1,
+                    };     
+                    if sub_result == 1 { //count
+                        new_vec.push(Field::IntField(1 as i32));
+
+                    } else if sub_result == 2 || sub_result == 3 { //max or min
+                        new_vec.push(tuple.get_field(ag.field).unwrap().clone());
+                    }
+
+                    i += 1;
+                    continue;
+                } else { //i32
+                    value = tuple.get_field(ag.field).unwrap().unwrap_int_field();
+                    self.ori_datatype[i] = 0;
+                }
+                i += 1;
+
+                let sub_result = match ag.op {
+                    AggOp::Avg => value,
+                    AggOp::Count => 1 as i32,
+                    AggOp::Max => value,
+                    AggOp::Min => value,
+                    AggOp::Sum => value,
+                };         
+                new_vec.push(Field::IntField(sub_result as i32));
+                //println!("{:?}", new_vec.clone());
+            }
+            self.groups.insert(cur_key.clone(), new_vec);
+            //println!("{:?}", self.groups.clone());
+            self.groups_count.insert(cur_key.clone(), 1); //update the number of object for this group. 
+            self.groups_lst.push(cur_key.clone());
+            //println!("{:?}", self.groups_lst.clone());
+
+
+
+        }
+
     }
+
+    pub fn merge_tuple_into_group(&mut self, tuple: &Tuple) {
+        let mut cur_key = String::new();
+        if self.groupby_fields.len() != 0 {
+            for i in self.groupby_fields.clone() { //generate key from groupby fields eg. 0-1-2
+                cur_key.push_str(&tuple.get_field(i).unwrap().to_string());
+                if i < self.groupby_fields.len() - 1 {cur_key.push_str("-")}
+            }
+        } else { //there's no group
+            cur_key.push_str("placeholder"); //in this case, there's only one key val pair in groups
+
+        }
+        //println!("{:?}", cur_key.clone());
+
+        if self.groups.contains_key(&cur_key) {
+            let exist = true;
+            self.Op_treatment(tuple, exist, cur_key);
+        } else {
+            let exist = false;
+            self.Op_treatment(tuple, exist, cur_key);
+        }
+
+    }
+
+
+    // Treatment
+    // pub enum AggOp {
+    //     Avg, -> save as sum, compute in the end
+    //     Count, -> plus 1
+    //     Max, -> check
+    //     Min, -> check
+    //     Sum, -> sum
+    // }
 
     /// Returns a `TupleIterator` over the results.
     ///
     /// Resulting tuples must be of the form: (group by fields ..., aggregate fields ...)
     pub fn iterator(&self) -> TupleIterator {
-        panic!("TODO milestone op");
+        let mut tuples = Vec::new();
+        for key in self.groups_lst.clone() {
+            let mut vec = self.groups.get(&key.clone()).unwrap().clone();
+            //println!("avg lst {:?}", self.avg_lst.clone());
+            for i in self.avg_lst.clone() { //do avg treatment
+                let mut new_avg = vec[i].unwrap_int_field().clone() / (self.num.clone() as i32);
+                //println!("{:?}/{:?} = {:?}", vec[i].unwrap_int_field().clone(), (self.num.clone() as i32), new_avg);
+                vec[i] = Field::IntField(new_avg);
+            }
+            //println!("{:?}", vec.clone());
+            let new_tuple = Tuple::new(vec);
+            tuples.push(new_tuple.clone());
+        }
+        let new_iterator = TupleIterator::new(tuples, self.schema.clone());
+        return new_iterator;
     }
 }
 
@@ -66,13 +289,14 @@ pub struct Aggregate {
     /// Aggregation fields and corresponding aggregation functions.
     agg_fields: Vec<AggregateField>,
     /// Aggregation iterators for results.
-    agg_iter: Option<TupleIterator>,
+    agg_iter: TupleIterator,
     /// Output schema of the form [groupby_field attributes ..., agg_field attributes ...]).
     schema: TableSchema,
     /// Boolean if the iterator is open.
     open: bool,
     /// Child operator to get the data from.
     child: Box<dyn OpIterator>,
+    aggregator: Aggregator,
 }
 
 impl Aggregate {
@@ -94,26 +318,88 @@ impl Aggregate {
         ops: Vec<AggOp>,
         child: Box<dyn OpIterator>,
     ) -> Self {
-        panic!("TODO milestone op");
+        let mut agg_fields = Vec::new();
+        for i in 0..agg_indices.len() {
+            agg_fields.push(AggregateField {field: agg_indices[i].clone(), op: ops[i].clone()});
+
+        }
+        let mut attribute_vec = Vec::new();
+        for group in groupby_names {
+            attribute_vec.push(Attribute::new(group.to_string(), DataType::Int));
+        }
+        for name in agg_names {
+            // name,
+            // dtype,
+            // constraint: Constraint::None,
+            attribute_vec.push(Attribute::new(name.to_string(), DataType::Int));
+        }
+        let schema = TableSchema::new(attribute_vec.clone());
+
+        // agg_fields: Vec<AggregateField>,
+        // groupby_fields: Vec<usize>,
+        // schema: &TableSchema,
+        let aggregator = Aggregator::new(agg_fields.clone(), groupby_indices.clone(), &schema);
+
+        let new_aggregate = Self {
+            groupby_fields: groupby_indices,
+            /// Aggregation fields and corresponding aggregation functions.
+            agg_fields: agg_fields,
+            /// Aggregation iterators for results.
+            agg_iter: TupleIterator::new(Vec::new(), TableSchema::new(Vec::new())), //placeholder
+            /// Output schema of the form [groupby_field attributes ..., agg_field attributes ...]).
+            schema: schema.clone(),
+            /// Boolean if the iterator is open.
+            open: false,
+            /// Child operator to get the data from.
+            child: child,    
+            aggregator: aggregator,
+        };
+        return new_aggregate;
     }
 
 }
 
+
 impl OpIterator for Aggregate {
     fn open(&mut self) -> Result<(), CrustyError> {
-        panic!("TODO milestone op");
+        self.open = true;
+        self.child.open();
+        while let Some(t) = self.child.next()? {
+            //println!("{:?}", t.clone());
+            self.aggregator.merge_tuple_into_group(&t);
+        }
+        self.agg_iter = self.aggregator.iterator();
+        self.agg_iter.open();
+        Ok(())
     }
 
     fn next(&mut self) -> Result<Option<Tuple>, CrustyError> {
-        panic!("TODO milestone op");
+        if !self.open {
+            panic!("Operator has not been opened")
+        }
+        return self.agg_iter.next();
+        
     }
 
     fn close(&mut self) -> Result<(), CrustyError> {
-        panic!("TODO milestone op");
+        if !self.open {
+            panic!("Operator has not been opened")
+        }   
+        self.open = false;
+        self.child.close()?;
+        self.agg_iter.close();
+        Ok(())
     }
 
     fn rewind(&mut self) -> Result<(), CrustyError> {
-        panic!("TODO milestone op");
+        if !self.open {
+            panic!("Operator has not been opened")
+        }
+        self.child.rewind()?;
+        self.close()?;
+        self.open();
+        self.agg_iter.rewind()?;
+        Ok(())
     }
 
     fn get_schema(&self) -> &TableSchema {
@@ -242,6 +528,7 @@ mod test {
                 Attribute::new("agg1".to_string(), DataType::Int),
                 Attribute::new("agg2".to_string(), DataType::Int),
             ]);
+            //println!("start running!");
 
             let mut agg = Aggregator::new(
                 vec![
@@ -262,6 +549,7 @@ mod test {
             for t in &ti {
                 agg.merge_tuple_into_group(t);
             }
+            //println!("{:?}", agg.groups.clone());
 
             let expected = vec![Field::IntField(6), Field::IntField(6)];
             let mut ai = agg.iterator();
@@ -319,7 +607,6 @@ mod test {
                 Attribute::new("group2".to_string(), DataType::Int),
                 Attribute::new("agg".to_string(), DataType::Int),
             ]);
-
             let mut agg = Aggregator::new(
                 vec![AggregateField {
                     field: 0,
@@ -333,7 +620,6 @@ mod test {
             for t in &ti {
                 agg.merge_tuple_into_group(t);
             }
-
             let mut ai = agg.iterator();
             ai.open()?;
             let rows = num_tuples(&mut ai)?;

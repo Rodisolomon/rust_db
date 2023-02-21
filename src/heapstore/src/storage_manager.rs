@@ -121,7 +121,7 @@ impl StorageTrait for StorageManager {
         let p_clone_1 = storage_path.to_path_buf();
         let p_clone_2 = storage_path.to_path_buf();
 
-        if !Path::new(&p_clone_1).exists() { //this is not a shutdown scenario
+        if !Path::new(&p_clone_1).exists() || !Path::new("data.json").exists(){ //this is not a shutdown scenario
             fs::create_dir(p_clone_1);
             let new_manager = StorageManager {
                 storage_path: storage_path, 
@@ -147,7 +147,6 @@ impl StorageTrait for StorageManager {
                 f_hf: Arc::new(RwLock::new(HashMap::new())),
                 is_temp: false};
             return new_manager;
-
         }
     }
 
@@ -550,11 +549,10 @@ mod test {
         let sm = StorageManager::new_test_sm();
         let cid = 1;
         sm.create_table(cid);
-        println!("finish create table");
 
         let bytes = get_random_byte_vec(40);
         let tid = TransactionId::new();
-        println!("start inserting val");
+
         let val1 = sm.insert_value(cid, bytes.clone(), tid);
         assert_eq!(1, sm.get_num_pages(cid));
         assert_eq!(0, val1.page_id.unwrap());
@@ -574,7 +572,6 @@ mod test {
             .unwrap();
         assert_ne!(p1.to_bytes()[..], p2.to_bytes()[..]);
     }
-
     #[test]
     fn hs_sm_b_iter_small() {
         init();
@@ -584,8 +581,6 @@ mod test {
         let tid = TransactionId::new();
 
         //Test one page
-        println!("**first part of test");
-
         let mut byte_vec: Vec<Vec<u8>> = vec![
             get_random_byte_vec(400),
             get_random_byte_vec(400),
@@ -594,14 +589,11 @@ mod test {
         for val in &byte_vec {
             sm.insert_value(cid, val.clone(), tid);
         }
-        // assert_eq!(byte_vec[0], x.0);
-        // assert_eq!(byte_vec[1], x.0);
-        // assert_eq!(byte_vec[2], x.0);
         let iter = sm.get_iterator(cid, tid, Permissions::ReadOnly);
         for (i, x) in iter.enumerate() {
             assert_eq!(byte_vec[i], x.0);
         }
-        println!("**second part of test");
+
         // Should be on two pages
         let mut byte_vec2: Vec<Vec<u8>> = vec![
             get_random_byte_vec(400),
@@ -619,7 +611,6 @@ mod test {
         for (i, x) in iter.enumerate() {
             assert_eq!(byte_vec[i], x.0);
         }
-        println!("**third part of test");
 
         // Should be on 3 pages
         let mut byte_vec2: Vec<Vec<u8>> = vec![
@@ -638,7 +629,7 @@ mod test {
             assert_eq!(byte_vec[i], x.0);
         }
     }
-
+    
     #[test]
     fn hs_sm_b_iter_large() {
         init();

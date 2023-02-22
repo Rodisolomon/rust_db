@@ -27,7 +27,7 @@ impl JoinPredicate {
             right_index: right_index, 
         };
         return new_predicate;
-    }
+    } 
 }
 
 /// Nested loop join implementation. (You can add any other fields that you think are neccessary)
@@ -188,6 +188,11 @@ impl OpIterator for Join {
 
 
 
+
+
+
+
+
 /// Hash equi-join implementation. (You can add any other fields that you think are neccessary)
 pub struct HashEqJoin {
     predicate: JoinPredicate,
@@ -223,17 +228,18 @@ impl HashEqJoin {
         left_child.open().unwrap();
         let t1 = left_child.next().unwrap().clone();
         let len1 = t1.clone().unwrap().size();
+        left_child.rewind();
         left_child.close();
         right_child.open().unwrap();
         let t2 = right_child.next().unwrap().clone();
         let len2 = t2.clone().unwrap().size();
+        right_child.rewind();
         right_child.close();
         let width = len1 + len2;
         let mut attrs = Vec::new();
         for _ in 0..width {
             attrs.push(Attribute::new(String::new(), DataType::Int))
         }
-
         let predicate:JoinPredicate = JoinPredicate::new(op, left_index, right_index);
 
         let schema = TableSchema::new(attrs);
@@ -260,6 +266,7 @@ impl OpIterator for HashEqJoin {
         self.right_child.open()?; //right child is the one keep checking and appending
         //initiate the hashmap
         while let Some(t) = self.left_child.next()? {
+            //println!("{:?}", t.clone());
             let key = t.clone().get_field(self.predicate.left_index).unwrap().unwrap_int_field();
             if self.key_hash.contains_key(&key.clone()) {
                 let mut tuple_vec = self.key_hash.get(&key.clone()).unwrap().clone();
@@ -269,6 +276,7 @@ impl OpIterator for HashEqJoin {
                 self.key_hash.insert(key.clone(), vec!(t.clone()));
             }
         }
+        //println!("hashmap {:?}", self.key_hash.clone());
         Ok(())        
     }
 

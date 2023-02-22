@@ -62,12 +62,10 @@ impl Join {
         mut right_child: Box<dyn OpIterator>,
     ) -> Self {
         left_child.open().unwrap();
-        let t1 = left_child.next().unwrap().clone();
-        let len1 = t1.clone().unwrap().size();
+        let len1 = left_child.next().unwrap().clone().unwrap().size();
         left_child.close();
         right_child.open().unwrap();
-        let t2 = right_child.next().unwrap().clone();
-        let len2 = t2.clone().unwrap().size();
+        let len2 = right_child.next().unwrap().clone().unwrap().size();
         right_child.close();
 
         let width = len1 + len2;
@@ -312,7 +310,7 @@ impl OpIterator for HashEqJoin {
 
         //check if end of the left tuple, go to check next right child
         self.index += 1;
-        if self.index == self.cur_left_tuple_vec.clone().len() as i32{ 
+        if self.index == self.cur_left_tuple_vec.len() as i32{ 
             self.index = -1;
             self.cur_left_tuple_vec = Vec::new();
         }
@@ -340,18 +338,6 @@ impl OpIterator for HashEqJoin {
         self.left_child.rewind()?;
         self.right_child.rewind()?;
         self.index = -1;
-        if (self.key_hash.is_empty()) {
-            while let Some(t) = self.left_child.next()? {
-                let key = t.clone().get_field(self.predicate.left_index).unwrap().unwrap_int_field();
-                if self.key_hash.contains_key(&key.clone()) {
-                    let mut tuple_vec = self.key_hash.get(&key.clone()).unwrap().clone();
-                    tuple_vec.push(t.clone());
-                    self.key_hash.insert(key.clone(), tuple_vec);
-                } else {
-                    self.key_hash.insert(key.clone(), vec!(t.clone()));
-                }
-            }
-        }
         Ok(())
     }
 

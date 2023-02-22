@@ -387,7 +387,7 @@ impl OpIterator for Aggregate {
         }   
         self.open = false;
         self.child.close()?;
-        self.agg_iter.close();
+        self.agg_iter.close()?;
         Ok(())
     }
 

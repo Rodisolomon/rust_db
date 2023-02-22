@@ -1,0 +1,64 @@
+ -  A brief description of your solution. In particular, include what design
+decisions you made and explain why. This is only needed for those parts of your
+solutions that had some significant design work (e.g. how you implemented and handled
+state in the aggregate and join operators). 
+
+Aggregate
+0. extra attribute in Aggregator Struct
+    groups_lst: Vec<String>,//keep track of the order of groups, used in "Op_treatment"
+    num: usize, //keep track of the tot number of tuple added, used for avg calculation
+    avg_lst: Vec<usize>, //keep track of the index in schema that is avg
+    ori_datatype: Vec<i32>, //keep track of the datatype of the field been aggregated, initiate as -1, 0 means i32, 1 means string; as same length of agg_field
+
+1. in Aggregate.open() method, I iteratively call "merge_tuple_into_group", finish generate the output iterator and store it in iterator attribute of aggregator (which itself is an attribute in aggregate struct)
+2. therefore, in Aggregate.next() method I call Tupleiterator.next() to return the desired value and stop when it output none
+3. helper function "Op_treatment": this function is called by "merge_tuple_into_group"
+    a) condition check 1: whether this group already exists in hashmap (update if it does, initiate if it doesn't)
+    b) condition check 2: whether this value in the original tuple is String or Int (because we need to unwrap it with different function. aggregator attribute ori_datatype is used)
+    c) condition check 3: what kind of aggregation (if it's avg, I'll record this schema index, store the sum in tuple temporarily, and divide it in "aggregator.iterator" method)
+
+
+*for both Join and HashEqJoin, schema determined by col_num_left_child + col_num_right_child
+
+Join
+0. extra attribute in Join struct
+    left_tuple: the current left tuple got checked
+1. Join.next(): 
+    We loop through right tuple iterator for every left tuple
+    condition check 1: if left tuple is uninitiated
+    condition check 2: if this is the end of right child
+        yes: restart right, go to next left child (if new right is None, end all check), update left_tuple
+        no: continue
+    condition check 3: match check
+        yes: add a new tuple to tuple iterator if condition is satisfied (join).
+        no: recursively call the next function until next match/end of everything
+
+
+
+
+
+
+HashEqJoin
+0. extra attribute in HashEqJoin struct 
+    key_hash: HashMap<i32, Vec<Tuple>> //hashmap storing with index_used_to_join: Vec<all tuple with this index> (left child is stored in this hashmap)
+    index: i32, //keep track of index of right child in key_hash (-1 uninitiated, normal val 0...(n-1), revert to -1 when reach the end of Vec<Tuple>)
+    cur_right_tuple: Tuple, //don't update if doesn't reach end of Vec<Tuple>, used to hold current right tuple 
+    cur_left_tuple_vec: Vec<Tuple>, //save hashmap searching time, store the current left tuple vector of corresponding key
+0.5. key_hash is created in the initiation function.
+1. HashEqJoin.next(): 
+    condition check 1: if index == -1.
+        yes: get the next right child. if right child none -> the end of every check. Otherwise store it in cur_right_tuple, check whether exist in key_hash. 
+            If no call the function recursively (until there's a match or there's end of all check)
+            If so store the current Vec<Tuple> in cur_left_tuple_vec, change index = 0 (position in cur_left_tuple_vec)
+        no: everything is normal. go to next section
+    get output tuple by merging, update index by 1
+    condition check 2: if index ==  cur_left_tuple_vec.len() (the end of the vector, should go to next right child tuple)
+        yes: index = -1
+        no: exit normally
+
+
+
+
+- How long you roughly spent on the milestone, and what would have
+liked/disliked on the milestone.
+I spend about 10 hours to finish implementing everything and 5 hours to debug. Overall the milestone is great, but I feel like probably more instruction on the performance will help me modifying my code.

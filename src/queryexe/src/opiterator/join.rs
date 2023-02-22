@@ -63,10 +63,8 @@ impl Join {
     ) -> Self {
         left_child.open().unwrap();
         let len1 = left_child.next().unwrap().clone().unwrap().size();
-        left_child.close();
         right_child.open().unwrap();
         let len2 = right_child.next().unwrap().clone().unwrap().size();
-        right_child.close();
 
         let width = len1 + len2;
 

@@ -80,9 +80,10 @@ impl Page {
     pub fn add_value(&mut self, bytes: &[u8]) -> Option<SlotId> {
         let required_val:usize = bytes.iter().count() + 4;
         if self.get_free_space() >= required_val {
-            for i in 0..bytes.len() {
-                self.real_data.push(bytes[i] as u8);
-            }
+            // for i in 0..bytes.len() {
+            //     self.real_data.push(bytes[i] as u8);
+            // }
+            self.real_data.extend(bytes);
             self.offset_data.push(bytes.len() as u16);
 
             let n_slot_id:u16;

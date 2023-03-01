@@ -72,3 +72,63 @@ impl Iterator for HeapFileIterator {
 
     }
 }
+
+// mod test {
+//     use super::*;
+//     use common::testutil::*;
+//     use temp_testdir::TempDir;
+
+//     #[test]
+//     fn hf_iterator() {
+//         init();
+
+//         //Create a temp file
+//         let f = gen_random_test_sm_dir();
+//         let tdir = TempDir::new(f, true);
+//         let mut f = tdir.to_path_buf();
+//         f.push(gen_rand_string(4));
+//         f.set_extension("hf");
+
+//         let mut hf = HeapFile::new(f.to_path_buf(), 0).expect("Unable to create HF for test");
+
+//         // Make a page and write
+//         let mut p0 = Page::new(0);
+//         let bytes = get_random_byte_vec(100);
+//         p0.add_value(&bytes);
+//         let bytes = get_random_byte_vec(100);
+//         p0.add_value(&bytes);
+
+//         let p0_bytes = p0.to_bytes();
+
+//         hf.write_page_to_file(p0);
+//         //check the page
+//         let checkp0 = hf.read_page_from_file(0).unwrap();
+//         assert_eq!(p0_bytes, checkp0.to_bytes());
+
+//         //Add another page
+//         let mut p1 = Page::new(1);
+//         let bytes = get_random_byte_vec(100);
+//         p1.add_value(&bytes);
+//         let bytes = get_random_byte_vec(100);
+//         p1.add_value(&bytes);
+//         let p1_bytes = p1.to_bytes();
+
+//         hf.write_page_to_file(p1);
+
+//         //Recheck page0
+//         let checkp0 = hf.read_page_from_file(0).unwrap();
+//         assert_eq!(p0_bytes, checkp0.to_bytes());
+
+//         //check page 1
+//         let checkp1 = hf.read_page_from_file(1).unwrap();
+//         assert_eq!(p1_bytes, checkp1.to_bytes());
+
+//         //check hf iterator
+//         println!("{:?}", hf);
+//         let mut hfi = HeapFileIterator::new(TransactionId::new(), Arc::new(hf));
+//         while let Some(get) = hfi.next() {
+//             println!("{:?}", get.0);
+//         }
+        
+//     }
+// }

@@ -220,7 +220,6 @@ impl HeapFile {
         let mut writable_f = self.file_lock.write().unwrap();
         writable_f.seek(SeekFrom::Start(offset as u64))?;
         writable_f.write_all(&bytes).expect("write failed with non-exist pid"); //expext is unwrap with an error message
-        drop(writable_f);
         //println!("finish writing");
 
         // let mut writable_left = self.left_bytes.write().unwrap();

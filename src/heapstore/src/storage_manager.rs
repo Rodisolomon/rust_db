@@ -157,8 +157,7 @@ impl StorageTrait for StorageManager {
         let storage_path = gen_random_test_sm_dir();
         let mut p_clone = storage_path.to_path_buf();
         println!("Making new temp storage_manager {:?}", storage_path);
-        let mut p_clone_2 = storage_path.to_path_buf();
-        fs::create_dir(p_clone_2);
+        fs::create_dir(storage_path.to_path_buf());
         let new_t_manager = StorageManager {
             storage_path: storage_path, 
             arc_s_path: Arc::new(RwLock::new(p_clone)), 

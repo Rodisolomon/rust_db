@@ -211,20 +211,22 @@ impl StorageTrait for StorageManager {
 
         let arr: &[u8] = &value; // cast into u8
         //println!("start updating");
-        for i in 0..readable_pg_ids.len() {
-            let mut p = hf.read_page_from_file(readable_pg_ids[i]).unwrap();
-            //println!("does p have enough left space? {:?}", p.enough_space(arr));
-            if p.enough_space(arr) {
-                let s_id = p.add_value(arr).unwrap();
-                let v_id = ValueId::new_slot(container_id, readable_pg_ids[i], s_id);
-                hf.write_page_to_file(p);
-                if !exist {
-                    let mut writable_hf = self.f_hf.write().unwrap();
-                    writable_hf.insert(container_id, hf);
+        if readable_pg_ids.len().clone() < 100 {
+            for i in 0..readable_pg_ids.len() {
+                let mut p = hf.read_page_from_file(readable_pg_ids[i]).unwrap();
+                //println!("does p have enough left space? {:?}", p.enough_space(arr));
+                if p.enough_space(arr) {
+                    let s_id = p.add_value(arr).unwrap();
+                    let v_id = ValueId::new_slot(container_id, readable_pg_ids[i], s_id);
+                    hf.write_page_to_file(p);
+                    if !exist {
+                        let mut writable_hf = self.f_hf.write().unwrap();
+                        writable_hf.insert(container_id, hf);
+                    }
+                    return v_id;
+                } else { //doesnt have enough space
+                    continue;
                 }
-                return v_id;
-            } else { //doesnt have enough space
-                continue;
             }
         }
         //all pages full or there's no table, create a new one

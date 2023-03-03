@@ -28,6 +28,7 @@ pub struct StorageManager {
     pub container_hashmap: Arc<RwLock<HashMap<ContainerId, PathBuf>>>, //path to hf
     f_hf: Arc<RwLock<HashMap<ContainerId, Arc<HeapFile>>>>,
     is_temp: bool,
+    
 }
 
 #[derive(Deserialize, Serialize)]
@@ -207,7 +208,7 @@ impl StorageTrait for StorageManager {
         drop(writable_hf);
         let a = hf.page_ids.read().unwrap();
         let readable_pg_ids = a.clone();
-        let condition: bool = readable_pg_ids.len().clone() < 100;
+        let condition: bool = readable_pg_ids.len().clone() < 150;
         drop(a);
 
         let arr: &[u8] = &value; // cast into u8

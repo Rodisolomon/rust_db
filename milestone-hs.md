@@ -68,7 +68,7 @@ pub type ContainerId = u16;
 pub type AtomicContainerId = AtomicU16;
 pub type SegmentId = u8;
 pub type PageId = u16;
-pub type SlotId = u16;
+pub type SlotId = u16; 
 ```
 when casting to and from another type (usize) to these Id types, you should use the type (SlotId) as they could change with time.  The intention is a that a ValueId <= 64 bits. This means that we know a page cannot have more than SlotId slots (`2^16`).
 

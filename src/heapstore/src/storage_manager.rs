@@ -189,10 +189,10 @@ impl StorageTrait for StorageManager {
         } else if w_container_hm.get(&container_id) == None { //container must have already been created
             panic!("This container doesn't exists in the storage manager");
         }
+
         let mut exist = false;
         //insertion
         let mut writable_hf = self.f_hf.write().unwrap();
-        
         let mut hf:Arc<HeapFile>;
         if writable_hf.contains_key(&container_id) {
             //println!("wow key exists");
@@ -207,11 +207,12 @@ impl StorageTrait for StorageManager {
         drop(writable_hf);
         let a = hf.page_ids.read().unwrap();
         let readable_pg_ids = a.clone();
+        let condition: bool = readable_pg_ids.len().clone() < 100;
         drop(a);
 
         let arr: &[u8] = &value; // cast into u8
         //println!("start updating");
-        if readable_pg_ids.len().clone() < 100 {
+        if condition {
             for i in 0..readable_pg_ids.len() {
                 let mut p = hf.read_page_from_file(readable_pg_ids[i]).unwrap();
                 //println!("does p have enough left space? {:?}", p.enough_space(arr));

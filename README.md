@@ -259,3 +259,4 @@ much more information, presented better, and in context, so it's a much more
 powerful way of debugging programs, and the recommended way. However, in some
 instances, the macros above may come in handy, especially as Rust's debuggers
 support matures.
+# rust_db
